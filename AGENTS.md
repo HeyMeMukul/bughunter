@@ -11,7 +11,7 @@ This file describes the AI agents used in this bug bounty framework and how to o
 | **Lead** | Strategic coordinator. Plans, analyzes, dispatches tasks, writes reports, runs M9 chain synthesis, and prioritizes hypotheses. | OmniRoute `auto/reasoning:free` | Primary agent in opencode session |
 | **Worker** | Tactical executor. Runs tools (recon, spider, mapping, testing, validation), writes structured results, and stays inside one hypothesis. | OmniRoute `auto/coding:free` | Spawned as subagent via `/worker` command |
 
-**No separate terminals needed.** Lead runs as the primary agent. Worker is spawned on-demand as a subagent. One opencode session handles everything.
+**No separate terminals needed for normal use.** Lead runs as the primary agent and Workers are spawned on-demand. The default configuration permits two bounded Worker slots for independent tasks; if the client executes slash commands serially, use separate bounded sessions rather than pretending tasks are parallel.
 
 ## Agent Discipline — PRO vs FLASH (NEVER VIOLATE)
 
@@ -32,6 +32,21 @@ The two-agent architecture is NOT optional. It is the single most important fact
 For ALL exploratory/heavy work: write a task file → validate with `task_validator.py` → lock with `state_manager.py` → dispatch `/worker`, `/map`, `/test`, `/spider`, or `/recon`.
 
 Lead only does: plan, dispatch, read Worker results, prioritize, chain synthesis, write reports.
+
+## Bounded Parallel Work
+
+Use parallel Workers only for independent tasks with separate task files and artifact paths. Good candidates are endpoint profiling, read-only evidence extraction, hypothesis classification, and report-evidence preparation. Keep live probes, account mutations, SSRF/OAST callbacks, WebSocket escalation, shared-state writes, and final validation serialized. Each task must have a scope hash, request cap, deadline, stop condition, and named result file.
+
+Reserve and release slots by task name:
+
+```bash
+python3 tools/state_manager.py lock-worker tasks/task-001-map-EP-003.md
+python3 tools/state_manager.py lock-worker tasks/task-002-map-EP-004.md
+python3 tools/state_manager.py unlock-worker tasks/task-001-map-EP-003.md
+python3 tools/state_manager.py unlock-worker tasks/task-002-map-EP-004.md
+```
+
+The Lead merges Worker results and is the only agent that performs cross-task chain reasoning or writes shared aggregate state.
 
 ## MCP Servers (Always-On Tools)
 
@@ -56,13 +71,11 @@ All are configured in `opencode.json` and available to all agents. OmniRoute is 
 
 # 2. Manually log in to both Chrome windows (attacker + victim)
 
-# 3. Start opencode (ONE session — Lead is the primary agent)
+# 3. Start opencode (Lead is the primary agent)
 opencode
 
-# 4. First message (Lead reads everything and starts):
-# "Read master_prompt.md, lead_prompt.md, target_prompt.md, methodology.md,
-#  bug_bounty_master_methodology_lean.md, phases/PHASE_ARCHITECTURE.md, and
-#  state.json. Dispatch Phase 0 Recon. Then Phase 1 Spidering."
+# 4. First message: load state and indexes first; do not load every historical file
+# "Read state.json and the current phase indexes. Dispatch the next bounded task set."
 
 # Lead will automatically spawn Worker subagents via /recon, /worker, /spider,
 # /map, /test, /validate commands as needed. You supervise.
@@ -161,7 +174,7 @@ results/               → Worker-generated result files
 | `tools/task_validator.py` | Dispatch | Pre-dispatch task validation (structure, files, sessions, dedup) |
 | `tools/result_quality_gate.py` | Verification | Worker result schema validation + state consistency checks |
 | `tools/hypothesis_deduplicator.py` | Dedup | Cross-endpoint hypothesis dedup + priority list generation |
-| `tools/state_manager.py` | State | Worker locking, session expiry, token budget, task timeouts |
+| `tools/state_manager.py` | State | Worker slots, session expiry, token-budget reservations, actual OmniRoute usage sync, and task timeouts |
 | `tools/spider_to_mapping_handoff.py` | Handoff | Auto-generate prioritized endpoint list from spider outputs |
 | `tools/external_intel.py` | Intel | GitHub dorking, Shodan lookup, CVE checking |
 | `tools/multi_target.py` | Multi | Multi-domain target management and cross-target correlation |

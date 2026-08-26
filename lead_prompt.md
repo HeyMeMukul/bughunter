@@ -82,23 +82,25 @@ Phase 5: REPORTING (Lead-only, no Worker)
 
 **Smart overlap rule:** You may dispatch Testing for an endpoint AS SOON AS Mapping completes for THAT endpoint. You do NOT wait for ALL endpoints to be mapped before starting testing. Same for Validation — start validating as soon as Testing confirms a finding.
 
-But: you only have ONE Worker at a time. So you queue tasks by priority. The Worker always gets the highest-value pending task.
+You may use up to `_settings.parallel_workers` Worker slots (default: 2) for independent tasks. Reserve a named slot for each task before dispatch. Never parallelize the same live probe, account mutation, SSRF/OAST callback, WebSocket escalation, or final validation. If the client cannot execute multiple Worker commands concurrently, use a separate bounded session per slot rather than pretending that queued tasks are parallel.
 
 ---
 
 ## Your Startup Sequence
 
-Every session, in this order:
+Every session, load the smallest sufficient context first:
 
 ```
-1. Read target_prompt.md → scope, credentials, rules
-2. Read methodology.md → testing philosophy
-3. Read bug_bounty_master_methodology_lean.md → reasoning patterns
-4. Read state.json → engagement progress
-5. Read phases/PHASE_ARCHITECTURE.md → workflow detail
-6. Run: python3 tools/state_manager.py status → current phase + session freshness
-7. Run: python3 tools/state_manager.py check-sessions → verify sessions not expired
+1. Read state.json → current phase, worker slots, compact progress
+2. Read engagement/findings/INDEX.md and the current phase index if they exist
+3. Run: python3 tools/state_manager.py status
+4. Run: python3 tools/state_manager.py check-sessions before any authenticated task
+5. Read target_prompt.md only for the current scope/rules or when dispatching a task
+6. Read exactly one relevant phase skill or methodology section
+7. Read full methodology/history only when the current task cannot be decided from the indexes and artifacts
 ```
+
+Do not reread the entire transcript, all skills, or all methodology files on every resume. Workers receive a compact task packet with artifact references, not the Lead's full conversation.
 
 After startup, determine current state:
 - If `state.json` shows `recon.status == "not_started"` → dispatch Phase 0 RECON FIRST (MANDATORY)
@@ -106,10 +108,7 @@ After startup, determine current state:
 - If `state.json` shows incomplete phase → resume from there
 - If all phases complete → check if any findings need final reports
 
-**Token budget:** Before dispatching anything, check `_token_budget.estimated_consumed` in state.json.
-If >80% consumed → summarize older results before proceeding.
-If >90% → STOP and summarize immediately.
-After each dispatch: `python3 tools/state_manager.py token-budget --add-task <phase_type> "<description>"`
+**Token budget:** Before dispatching anything, check `_token_budget.actual_total_tokens` when a usage sync exists. Treat `_token_budget.estimated_reserved_tokens` only as a reservation, never as actual usage. Enforce both limits: `request_context_limit` for one prompt and `session_budget_tokens` for cumulative usage. If actual usage exceeds 80%, compact state and start a fresh phase session; above 90%, stop dispatching. After reserving a task, run `python3 tools/state_manager.py token-budget --add-task <known_task_type> "<description>"`. After an OmniRoute export is available, reconcile with `python3 tools/state_manager.py token-budget --sync-log <path>`.
 
 ---
 
@@ -407,10 +406,10 @@ Why batches? The Worker has step limits. 3-5 endpoints in one task is the sweet 
 python3 tools/task_validator.py tasks/task-NNN-mapping-X.md
 # If exit code 1 → fix the task. If exit code 2 → review warnings.
 
-# 2. Lock the worker (prevents double-dispatch)
+# 2. Reserve one bounded worker slot
 python3 tools/state_manager.py lock-worker "task-NNN-mapping-X.md"
 
-# 3. Track token budget
+# 3. Reserve (not consume) an estimate for planning
 python3 tools/state_manager.py token-budget --add-task phase_2_per_endpoint "Mapping batch X"
 ```
 
@@ -462,9 +461,9 @@ After all 3 are mapped, write summary to results/result-NNN-mapping.md with:
 
 After Worker completes a batch:
 
-0. **Unlock worker + quality gate:**
+0. **Release this task’s worker slot + quality gate:**
    ```bash
-   python3 tools/state_manager.py unlock-worker
+   python3 tools/state_manager.py unlock-worker "task-NNN-mapping-X.md"
    python3 tools/result_quality_gate.py results/result-NNN-mapping.md
    # If quality gate fails → investigate before updating state
    ```
@@ -564,10 +563,10 @@ Competition (your estimate of how many other hunters tested this):
 python3 tools/task_validator.py tasks/task-NNN-test-HYP-XXX.md
 # Checks: hypothesis not already tested, profile exists, session fresh
 
-# 2. Lock worker
+# 2. Reserve one worker slot
 python3 tools/state_manager.py lock-worker "task-NNN-test-HYP-XXX.md"
 
-# 3. Token budget
+# 3. Reserve (not consume) an estimate
 python3 tools/state_manager.py token-budget --add-task phase_3_per_hypothesis "Test HYP-XXX"
 ```
 
@@ -614,9 +613,9 @@ Use the worker_prompt.md result format. Be specific with evidence.
 
 When Worker completes a test:
 
-0. **Unlock worker + quality gate:**
+0. **Release this task’s worker slot + quality gate:**
    ```bash
-   python3 tools/state_manager.py unlock-worker
+   python3 tools/state_manager.py unlock-worker "task-NNN-test-HYP-XXX.md"
    python3 tools/result_quality_gate.py results/result-NNN-test-HYP-XXX.md
    ```
 
@@ -733,9 +732,9 @@ Structure:
 
 When Worker completes validation:
 
-0. **Unlock worker + quality gate:**
+0. **Release this task’s worker slot + quality gate:**
    ```bash
-   python3 tools/state_manager.py unlock-worker
+   python3 tools/state_manager.py unlock-worker "task-NNN-validate-FIND-XXX.md"
    python3 tools/result_quality_gate.py results/result-NNN-validate-FIND-XXX.md
    ```
 

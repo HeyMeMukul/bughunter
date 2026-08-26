@@ -51,9 +51,14 @@ Phases run in order BUT testing can dispatch per-endpoint as soon as mapping for
 - Reporting findings that haven't been re-validated
 
 **What this enables:**
-- Maximum parallelism within our 2-agent constraint
+- Maximum parallelism within the configured worker-slot limit
 - Lead can analyze mapping output cross-endpoint to spot chains
 - Worker tasks are surgical because mapping provides full context
+- Independent tasks can run concurrently, but shared-state writes and high-impact validation remain serialized
+
+**Bounded parallelism rule:** set `_settings.parallel_workers` to `2` initially. Parallelize independent read-only reconnaissance, endpoint profiling, hypothesis classification, or report-evidence extraction. Do not parallelize the same live probe, account mutation, state-changing action, SSRF/OAST callback, WebSocket escalation, or final validation against one target. Every task must have a unique task file, artifact output path, request budget, deadline, and stop condition.
+
+Each Worker receives a compact task packet, not the full transcript. The packet contains the scope hash, one endpoint or hypothesis, relevant artifact paths, a short phase summary, allowed tools, maximum requests, and expected output schema. Workers write results to separate files; the Lead merges them after completion.
 
 ### 2. Tool-First for Mechanical Work
 
@@ -80,7 +85,7 @@ Anything that requires JUDGMENT stays with the agent:
 
 ### 4. File-Based Communication
 
-Lead writes → Worker reads → Worker writes → Lead reads. No sockets, no APIs, no databases. Just files in shared directories. This is what makes two-CLI architecture work.
+Lead writes → Worker reads → Worker writes → Lead reads. No sockets, no APIs, no databases. Just files in shared directories. This is what makes the multi-worker architecture auditable. Each parallel task gets its own result file and state slot; the Lead performs the merge and any cross-task chain reasoning.
 
 ---
 
@@ -568,12 +573,13 @@ This is why the Lead is the BRAIN — it maintains the queue, prioritizes, and e
 
 When you sit down to hunt:
 ```
-1. You start ONE opencode session
-2. Lead (primary agent) reads target_prompt.md, state.json, decides what phase to work on
-3. Lead writes a task file and spawns a Worker subagent via /worker
-4. Worker executes the task, writes result, returns to Lead
-5. Lead reads result, updates state, spawns next Worker
-6. Repeat until reporting phase completes
+1. You start ONE opencode session.
+2. Lead reads the compact state/index files and decides the next bounded task set.
+3. Lead writes one task file per independent task and reserves worker slots.
+4. Up to `_settings.parallel_workers` Workers execute independently, each with a compact packet and separate artifact path.
+5. Workers write results and release their named slots.
+6. Lead merges results, updates state once, and dispatches the next bounded set.
+7. Repeat until reporting phase completes.
 ```
 
 You supervise. Lead handles coordination. Worker subagents are spawned automatically. The phases ensure work is done in the right order with the right context.

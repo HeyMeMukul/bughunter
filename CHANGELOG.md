@@ -1,5 +1,21 @@
 # Changelog — Framework v4 (The GOATED Framework)
 
+## v4.3.0 — Bounded Parallel Workers + Accurate Usage (August 2026)
+
+### Orchestration
+- **Added:** two-slot default Worker capacity for independent tasks.
+- **Updated:** `tools/state_manager.py` with named worker slots, per-task unlock, timeout handling for parallel tasks, interprocess locking, and atomic state replacement.
+- **Updated:** `lead_prompt.md`, `AGENTS.md`, and `phases/PHASE_ARCHITECTURE.md` with safe parallelism rules and compact Worker task packets.
+
+### Token accounting
+- **Fixed:** legacy `estimated_consumed` was only a rough reservation and was incorrectly presented as consumption.
+- **Added:** distinct `request_context_limit`, `session_budget_tokens`, `estimated_reserved_tokens`, and actual input/output/cache-read counters.
+- **Added:** `token-budget --sync-log <path>` for reconciling actual OmniRoute JSON log usage.
+- **Fixed:** unknown task types now fail instead of silently receiving a default estimate.
+- **Added:** `PARALLEL_WORKERS_AND_BUDGET.md` operator guide.
+
+---
+
 ## v4.1.0 — OmniRoute + Evidence-First Skills (August 2026)
 
 ### Routing and cost controls
