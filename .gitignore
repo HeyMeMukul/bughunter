@@ -1,0 +1,24 @@
+# Credentials & secrets — NEVER commit
+engagement/.creds.sh
+*.creds.sh
+.env
+.env.*
+*.key
+*.pem
+!*.pem.template
+!.template
+
+# Engagement data (target-specific, may contain sensitive artifacts)
+engagement/
+state.json
+target_prompt.md
+
+# Temp / OS files
+*.log
+.DS_Store
+__pycache__/
+*.pyc
+
+# OpenCode local state
+.opencode/
+node_modules/

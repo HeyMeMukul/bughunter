@@ -1,0 +1,160 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "build": {
+      "mode": "primary",
+      "model": "omniroute/auto/reasoning:free"
+    },
+    "general": {
+      "mode": "subagent",
+      "model": "omniroute/auto/coding:free"
+    }
+  },
+  "provider": {
+    "omniroute": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "OmniRoute (local)",
+      "options": {
+        "baseURL": "{env:OMNIROUTE_BASE_URL}",
+        "apiKey": "{env:OMNIROUTE_API_KEY}",
+        "headers": {
+          "X-OmniRoute-Mode": "offline",
+          "X-OmniRoute-Budget": "0.000001",
+          "X-OmniRoute-Budget-Fallback": "strict",
+          "X-OmniRoute-Compression": "coding-safe"
+        }
+      },
+      "models": {
+        "auto/reasoning:free": {
+          "name": "Auto Reasoning — free-only policy",
+          "reasoning": true
+        },
+        "auto/coding:free": {
+          "name": "Auto Coding — free-only policy",
+          "reasoning": true
+        },
+        "auto/fast": {
+          "name": "Auto Fast (opt-in)",
+          "reasoning": true
+        }
+      }
+    },
+    "omniroute-cheap": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "OmniRoute (local, opt-in low cost)",
+      "options": {
+        "baseURL": "{env:OMNIROUTE_BASE_URL}",
+        "apiKey": "{env:OMNIROUTE_API_KEY}",
+        "headers": {
+          "X-OmniRoute-Mode": "cheap",
+          "X-OmniRoute-Budget-Fallback": "strict",
+          "X-OmniRoute-Compression": "coding-safe"
+        }
+      },
+      "models": {
+        "auto/coding:cheap": {
+          "name": "Auto Coding — lowest cost (opt-in)",
+          "reasoning": true
+        }
+      }
+    }
+  },
+  "mcp": {
+    "playwright": {
+      "type": "local",
+      "command": ["npx", "@playwright/mcp@latest", "--caps", "core,pdf,vision,devtools,storage,network", "--viewport-size", "1280x900"],
+      "enabled": true
+    },
+    "burp": {
+      "type": "remote",
+      "url": "http://127.0.0.1:9876",
+      "enabled": true
+    },
+    "github": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-github"],
+      "enabled": true,
+      "description": "GitHub API — search code, repos, issues, pulls, commits for leaked secrets and internal configs"
+    },
+    "brave-search": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-brave-search"],
+      "enabled": true,
+      "description": "Brave Search API — automated dorking, subdomain discovery, leaked data search"
+    },
+    "memory": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-memory"],
+      "enabled": true,
+      "description": "Persistent knowledge graph — remember findings, program profiles, FP patterns across sessions"
+    },
+    "sequential-thinking": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-sequential-thinking"],
+      "enabled": true,
+      "description": "Multi-step reasoning engine — complex chain synthesis, exploit chain analysis"
+    }
+  },
+  "command": {
+    "worker": {
+      "agent": "general",
+      "description": "Spawns the Worker subagent to execute a framework task (spider, mapping, testing, validation)",
+      "template": "First, carefully read your operational instructions in `worker_prompt.md`. Then read `master_prompt.md` for the thinking foundation. You have access to Playwright MCP for browser automation, Burp Suite MCP for HTTP request manipulation, GitHub MCP for code/secret searching, and Brave Search MCP for web dorking. Adhere strictly to these guidelines. Now, execute the following task: ${prompt}"
+    },
+    "spider": {
+      "agent": "general",
+      "description": "Runs Phase 1 spidering against the target",
+      "template": "Read `worker_prompt.md` and `skills/recon/SKILL.md`. Use Playwright MCP browser tools for SPA navigation where curl fails. Use Brave Search MCP to discover URLs and subdomains via dorking. Use GitHub MCP to find exposed endpoints in public repos. Run the spider tools: tools/spider/spider.sh, tools/spider/spider_comprehension.sh, tools/path_fuzzer.sh, tools/waf_detect.sh. Execute Phase 1 spidering: ${prompt}"
+    },
+    "map": {
+      "agent": "general",
+      "description": "Runs Phase 2 mapping on specified endpoints",
+      "template": "Read `worker_prompt.md` and `skills/mapping/SKILL.md`. Use Playwright MCP for browser-based interaction testing. Use Burp MCP for structured HTTP request analysis. Use Sequential Thinking MCP for complex multi-step parameter analysis. Execute Phase 2 mapping: ${prompt}"
+    },
+    "test": {
+      "agent": "general",
+      "description": "Runs Phase 3 vulnerability testing on a hypothesis",
+      "template": "Read `worker_prompt.md` and the skill file referenced in the task. Use Burp MCP (send_to_intruder for race conditions, send_http1_request for precise request crafting, generate_collaborator_payload for OOB testing). Use Playwright MCP for DOM XSS and client-side testing. Use Sequential Thinking MCP for chain hypothesis generation. Execute Phase 3 testing: ${prompt}"
+    },
+    "validate": {
+      "agent": "general",
+      "description": "Runs Phase 4 validation on a confirmed finding",
+      "template": "Read `worker_prompt.md`. Use Playwright MCP for browser-based PoC screenshots. Use Burp MCP for clean request/response capture. Use GitHub MCP to check if the finding matches known exposed code. Execute Phase 4 validation: ${prompt}"
+    },
+    "browser": {
+      "agent": "general",
+      "description": "Browser automation task using Playwright MCP",
+      "template": "Read `skills/browser-sessions/SKILL.md`. Use Playwright MCP tools (browser_navigate, browser_click, browser_snapshot, browser_evaluate, browser_cookie_list, etc.) to complete: ${prompt}"
+    },
+    "burp": {
+      "agent": "general",
+      "description": "Burp Suite MCP task for HTTP analysis",
+      "template": "Read `skills/burp-mcp/SKILL.md`. Use Burp Suite MCP tools (send_http1_request, send_to_intruder, get_proxy_http_history, generate_collaborator_payload, etc.) to complete: ${prompt}"
+    },
+    "recon": {
+      "agent": "general",
+      "description": "Runs Phase 0 infrastructure reconnaissance",
+      "template": "Read `worker_prompt.md` and `skills/recon-infra/SKILL.md`. Use Brave Search MCP for automated dorking and subdomain discovery. Use GitHub MCP to search for leaked secrets in target's public repos. Execute Phase 0 infrastructure recon: ${prompt}"
+    },
+    "dork": {
+      "agent": "general",
+      "description": "GitHub + Search dorking for leaked data, subdomains, and exposed endpoints",
+      "template": "Read `worker_prompt.md` and `skills/github-mcp/SKILL.md`. Use GitHub MCP tools to search code/repos/commits for the target. Then use Brave Search MCP for web dorking. Compile all discovered assets, endpoints, and potential secrets (masked). Execute dorking: ${prompt}"
+    },
+    "think": {
+      "agent": "build",
+      "description": "Sequential multi-step reasoning for complex chain analysis and exploit planning",
+      "template": "Read `skills/sequential-thinking/SKILL.md`. Use Sequential Thinking MCP to break down the problem. Think through each step methodically. Return a structured analysis with confidence levels. Analyze: ${prompt}"
+    },
+    "status": {
+      "agent": "build",
+      "description": "Shows current engagement status from state.json",
+      "template": "Read state.json and summarize the current engagement status. Show phase progress, findings count, and next priority action."
+    },
+    "resume": {
+      "agent": "build",
+      "description": "Resumes engagement from last session",
+      "template": "Read master_prompt.md, lead_prompt.md, target_prompt.md, methodology.md, bug_bounty_master_methodology_lean.md, phases/PHASE_ARCHITECTURE.md, and state.json. Load Memory MCP to recall program profiles and previous findings. Determine current engagement state and tell me the next priority task to dispatch. Remember: you are the Lead. Spawn Worker subagents via /worker, /spider, /map, /test, /validate commands."
+    }
+  }
+}

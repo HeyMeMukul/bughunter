@@ -1,0 +1,128 @@
+{
+  "engagement": {
+    "program": "test-program",
+    "target": "https://example.com",
+    "started": "2026-05-13T13:17:48Z",
+    "status": "active",
+    "current_focus": "phase_1_spidering"
+  },
+  "sessions": {
+    "session_a": {
+      "role": "attacker",
+      "browser_port": 9222,
+      "status": "not_logged_in",
+      "last_verified": null,
+      "cookie_extracted_path": null
+    },
+    "session_b": {
+      "role": "victim",
+      "browser_port": 9223,
+      "status": "not_logged_in",
+      "last_verified": null,
+      "cookie_extracted_path": null
+    }
+  },
+  "spider": {
+    "status": "not_started",
+    "endpoints_total": 0,
+    "hidden_endpoints_found": 0,
+    "sitemap_path": null,
+    "comprehension": {
+      "sources_recovered": 0,
+      "webpack_chunks": 0,
+      "api_specs_found": [],
+      "csp_trusted_hosts": 0,
+      "wayback_extras_not_in_sitemap": 0
+    },
+    "waf": {
+      "name": null,
+      "rate_limiting": false,
+      "bypass_techniques": []
+    },
+    "hidden_params_found": 0,
+    "external_intel": {
+      "cve_check_run": false,
+      "cve_matches": 0,
+      "critical_cves": [],
+      "github_dork_run": false,
+      "shodan_checked": false
+    }
+  },
+  "mapping": {
+    "status": "not_started",
+    "endpoints_mapped": 0,
+    "endpoints_pending": [],
+    "endpoints_total": 0,
+    "hypotheses_generated_total": 0,
+    "high_confidence_count": 0,
+    "dedup_run": false,
+    "priority_list_path": null
+  },
+  "testing": {
+    "status": "not_started",
+    "hypotheses_total": 0,
+    "hypotheses_tested": 0,
+    "hypotheses_confirmed": 0,
+    "hypotheses_negative": 0,
+    "hypotheses_deferred": 0,
+    "tested_hypothesis_ids": [],
+    "high_priority_pending": []
+  },
+  "validating": {
+    "status": "not_started",
+    "validated_count": 0,
+    "pending": []
+  },
+  "reporting": {
+    "status": "not_started",
+    "reports_written": 0,
+    "pending": []
+  },
+  "findings": [],
+  "chains_identified": [],
+  "blocked_chars": {},
+  "waf_observations": [],
+  "next_session": {},
+  "_meta": {
+    "schema_version": "2.0.0",
+    "last_updated_by": null,
+    "last_updated_at": null,
+    "framework_version": "v3.2.0"
+  },
+  "_concurrency": {
+    "worker_active": false,
+    "active_task": null,
+    "task_started_at": null,
+    "last_completed_task": null,
+    "last_completed_at": null
+  },
+  "_token_budget": {
+    "context_limit": 800000,
+    "estimated_consumed": 0,
+    "task_log": []
+  },
+  "_timeouts": [],
+  "_tech_stack": [],
+  "_settings": {
+    "worker_timeout_minutes": 90,
+    "session_expiry_hours": 8,
+    "max_mapping_batch": 5,
+    "max_low_confidence_hypotheses_per_endpoint": 3,
+    "hypothesis_dedup_enabled": true,
+    "pre_dispatch_validation_enabled": true,
+    "result_quality_gates_enabled": true,
+    "token_budget_tracking_enabled": true,
+    "external_intel_enabled": false,
+    "parallel_workers": 1
+  },
+  "_confidence_calibration": {
+    "total_hypotheses_tested": 0,
+    "total_confirmed": 0,
+    "accuracy_by_confidence": {
+      "HIGH": {"tested": 0, "confirmed": 0},
+      "MEDIUM": {"tested": 0, "confirmed": 0},
+      "LOW": {"tested": 0, "confirmed": 0}
+    },
+    "accuracy_by_vuln_type": {}
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "version": "1.0.0",
+  "base_url_env": "OMNIROUTE_BASE_URL",
+  "api_key_env": "OMNIROUTE_API_KEY",
+  "default_policy": "free-only",
+  "data_classes": {
+    "public_metadata": {"allowed_policies": ["free-only", "cheap", "trusted"]},
+    "sanitized_findings": {"allowed_policies": ["free-only", "cheap", "trusted"]},
+    "raw_http_evidence": {"allowed_policies": ["trusted"]},
+    "cookies_credentials_pii": {"allowed_policies": ["local-only"]}
+  },
+  "routes": {
+    "lead": {
+      "model": "auto/reasoning:free",
+      "mode": "offline",
+      "compression": "coding-safe",
+      "budget_fallback": "strict",
+      "purpose": "planning and prioritization over sanitized context"
+    },
+    "worker": {
+      "model": "auto/coding:free",
+      "mode": "offline",
+      "compression": "coding-safe",
+      "budget_fallback": "strict",
+      "purpose": "tactical execution summaries; never raw credentials"
+    },
+    "cheap_fallback": {
+      "model": "auto/coding:cheap",
+      "mode": "cheap",
+      "compression": "coding-safe",
+      "budget_fallback": "strict",
+      "purpose": "opt-in sanitized work when free-only has no viable candidate"
+    },
+    "trusted_sensitive": {
+      "model": "trusted-combo-name",
+      "mode": "balanced",
+      "compression": "passthrough",
+      "budget_fallback": "strict",
+      "purpose": "operator-approved provider/combo for sensitive but redacted evidence"
+    }
+  },
+  "required_headers_for_direct_clients": {
+    "X-OmniRoute-Budget-Fallback": "strict",
+    "X-OmniRoute-Compression": "coding-safe"
+  },
+  "operator_checks": [
+    "Confirm the four connected connections are authorized for this use.",
+    "Inspect /v1/models and the auto-combo candidate list before a session.",
+    "Enable OmniRoute freeAccessPolicy=strict only after checking its live catalog and usage adapters.",
+    "Keep raw cookies, passwords, API keys, and unredacted PII on a local-only route.",
+    "Record route, provider, model, and data class in every result."
+  ]
+}

@@ -1,0 +1,826 @@
+---
+name: reconnaissance
+description: Comprehensive reconnaissance and attack surface mapping — the FIRST and MOST IMPORTANT skill in any engagement. Covers subdomain enumeration (passive + active + permutation), live host discovery, port scanning, technology fingerprinting, endpoint discovery (crawling + archival + brute-force), JavaScript analysis (endpoints + secrets + source maps), API discovery and mapping, parameter mining, authentication flow mapping, WAF/CDN identification, and attack surface prioritization. The quality of recon determines the quality of every finding that follows.
+---
+
+# Reconnaissance & Attack Surface Discovery
+
+Recon is not a checkbox. It is the single most important phase that determines whether you find unique bugs or waste time on hardened surfaces. The hunters who find critical bugs don't have better exploitation skills — they have better recon. They test endpoints others don't know exist.
+
+## Reference Files
+
+- [tools.md](./tools.md) — Tool commands and flags for each phase
+- [js_analysis.md](./js_analysis.md) — Deep JavaScript analysis methodology
+- [attack_surface_patterns.md](./attack_surface_patterns.md) — Signal patterns that map to vulnerability skills
+- [advanced_recon.md](./advanced_recon.md) — Advanced techniques: DNS zone walking, cloud enumeration, GitHub dorking, mobile API extraction
+
+## Core Philosophy
+
+**Breadth before depth.** Discover everything. Test nothing. The goal is a complete inventory: subdomains, live hosts, endpoints, parameters, APIs, JavaScript files, technologies, authentication flows, and hidden functionality. Active vulnerability testing happens ONLY after recon is complete.
+
+**Think like the developers.** Every endpoint exists because someone built it. Ask: Why does this exist? What does it connect to? What was the developer thinking? What did they forget?
+
+**Mine the past.** Applications evolve. Old endpoints get forgotten but not removed. Old JavaScript files reveal retired API versions. Archived pages expose staging environments. The Wayback Machine is your second-most-important tool after your brain.
+
+**Unique surface = unique bugs.** If you're testing the same endpoints every other hunter found, you'll find the same bugs they already reported. Your competitive advantage is finding attack surface nobody else knows about: shadow APIs, deprecated endpoints, internal tools exposed accidentally, mobile-only APIs, debug parameters, hidden admin panels.
+
+## Workflow
+
+```
+1. SCOPE → 2. PASSIVE → 3. ACTIVE → 4. CONTENT DISCOVERY → 5. JS ANALYSIS
+   (define)    (no contact)  (interact)   (hidden paths)      (extract secrets)
+
+→ 6. API MAPPING → 7. AUTH FLOW → 8. PARAM MINING → 9. TECH PROFILING → 10. PRIORITIZATION
+   (full API surface) (login/SSO)   (hidden params)   (stack + WAF)       (rank targets)
+```
+
+---
+
+## Phase 1: Scope Definition & Intelligence Gathering
+
+**Goal:** Understand exactly what you're authorized to test, and gather context about the organization before touching any infrastructure.
+
+### Step 1.1: Document the Scope
+
+For each in-scope asset:
+```
+Asset: [domain/IP/app]
+Type: [web app / API / mobile / infrastructure]
+Tier: [priority level if program defines tiers]
+Known Stack: [from program description]
+```
+
+For out-of-scope:
+```
+Excluded: [specific domains, IPs, vulnerability types]
+Rate Limits: [max requests/second]
+Restrictions: [testing hours, no brute-force, etc.]
+```
+
+### Step 1.2: OSINT on the Organization
+
+Before touching any servers, gather intelligence:
+
+**Company research:**
+- What does the company do? What's their core business?
+- What industry? (fintech = payment flows, healthcare = PII, SaaS = multi-tenancy)
+- How big is their engineering team? (small team = more misconfigurations)
+- Recent acquisitions? (acquired companies often have legacy infrastructure)
+- Job postings? (reveal tech stack: "Senior Kubernetes Engineer" tells you they use K8s)
+
+**Technical intelligence:**
+- WHOIS: registrant, registrar, creation date, nameservers
+- ASN lookup: what IP ranges does the organization own?
+- DNS: MX records (email provider), TXT records (SPF/DKIM reveal mail infrastructure), NS records (DNS provider)
+- SSL certificates: certificate transparency logs reveal ALL subdomains the org has ever issued certs for
+
+**Why this matters:** Understanding the organization tells you where to look. A fintech company with Kubernetes infrastructure means you should prioritize payment APIs, multi-tenancy isolation, and K8s misconfigurations. A small startup with rapid growth means more rushed code and more misconfigurations.
+
+### Step 1.3: Create Working Directory
+
+```bash
+mkdir -p bugbounty/$PROGRAM/{recon,endpoints,js/{downloaded,sourcemaps},parameters,notes,reports,poc}
+```
+
+### Reasoning Checkpoint
+```
+[PHASE-1] Scope Definition
+[TARGET] {program name}
+[ORGANIZATION] {what they do, size, industry}
+[IN-SCOPE] {asset count and types}
+[OUT-OF-SCOPE] {key exclusions}
+[TECH-HINTS] {any technology indicators from OSINT}
+[DECISION] Proceed to passive recon
+```
+
+---
+
+## Phase 2: Passive Reconnaissance (Zero Server Contact)
+
+**Goal:** Discover as much attack surface as possible without sending a single packet to the target.
+
+### Step 2.1: Subdomain Enumeration — Multi-Source
+
+**Why multiple sources:** No single source has complete coverage. Each source discovers subdomains through different methods. Combining 5+ sources typically doubles the result count.
+
+**Certificate Transparency (highest signal):**
+```bash
+curl -s "https://crt.sh/?q=%25.target.com&output=json" | jq -r '.[].name_value' | sed 's/\*\.//g' | sort -u > subs_crt.txt
+```
+CT logs contain EVERY certificate ever issued for the domain. This catches subdomains that were only live briefly, staging environments, and internal services that accidentally got public certs.
+
+**Passive aggregators (broadest coverage):**
+```bash
+subfinder -d target.com -all -o subs_subfinder.txt
+amass enum -passive -d target.com -o subs_amass.txt
+assetfinder --subs-only target.com > subs_assetfinder.txt
+```
+
+**Archive sources (historical discovery):**
+```bash
+# Wayback Machine — finds subdomains from years of crawling
+curl -s "http://web.archive.org/cdx/search/cdx?url=*.target.com/*&output=text&fl=original&collapse=urlkey" | sed 's|https\?://||' | cut -d'/' -f1 | sort -u > subs_wayback.txt
+
+# Common Crawl
+curl -s "https://index.commoncrawl.org/CC-MAIN-2024-10-index?url=*.target.com&output=json" | jq -r '.url' | sed 's|https\?://||' | cut -d'/' -f1 | sort -u > subs_commoncrawl.txt
+
+# AlienVault OTX — passive DNS intelligence
+curl -s "https://otx.alienvault.com/api/v1/indicators/domain/target.com/passive_dns" | jq -r '.passive_dns[].hostname' | sort -u > subs_otx.txt
+```
+
+**GitHub/GitLab (developer leaks):**
+```
+Search queries:
+  "target.com" — finds mentions in code, configs, docs
+  "api.target.com" — finds API endpoint references
+  org:target-org filename:.env — finds environment files
+  org:target-org password OR secret OR key OR token — finds hardcoded secrets
+  "target.com" filename:docker-compose — finds infrastructure config
+  "target.com" filename:application.properties — finds Spring configs
+```
+GitHub often reveals internal subdomains, staging environments, API keys, and infrastructure details that aren't discoverable any other way.
+
+**DNS intelligence:**
+```bash
+# Reverse DNS on the organization's IP ranges
+# First find their ASN
+whois -h whois.radb.net -- "-i origin AS$(dig +short target.com | head -1 | xargs -I{} curl -s "https://api.bgpview.io/ip/{}" | jq -r '.data.prefixes[0].asn.asn')"
+
+# SPF records reveal email infrastructure
+dig target.com TXT | grep spf
+
+# DMARC reveals mail handling
+dig _dmarc.target.com TXT
+```
+
+### Step 2.2: Subdomain Permutation & Brute-Force Wordlist Prep
+
+After passive collection, generate permutations for active phase:
+```bash
+# Combine all passive results
+cat subs_*.txt | sort -u > all_passive_subs.txt
+
+# Extract subdomain naming patterns
+cat all_passive_subs.txt | sed 's/\.target\.com$//' | tr '-' '\n' | tr '.' '\n' | sort | uniq -c | sort -rn | head -30
+# This reveals naming conventions: "api", "staging", "dev", "internal", "v2", "admin", etc.
+
+# Generate permutations from discovered patterns
+# If you found: api.target.com and staging.target.com
+# Then try: api-staging.target.com, staging-api.target.com, api2.target.com, etc.
+```
+
+**Think about what SHOULD exist:**
+- If `api.target.com` exists → try `api-v2`, `api-staging`, `api-internal`, `api-dev`, `api-test`, `api-beta`
+- If `app.target.com` exists → try `app2`, `app-staging`, `old-app`, `new-app`, `beta-app`
+- If they use a pattern like `service-name.target.com` → try all common service names: `auth`, `users`, `payments`, `notifications`, `search`, `admin`, `dashboard`, `metrics`, `logs`, `ci`, `deploy`
+
+### Step 2.3: Consolidation & Wildcard Check
+
+```bash
+# Combine everything
+cat all_passive_subs.txt permutation_subs.txt | sort -u > all_subdomains.txt
+
+# Check for wildcard DNS FIRST
+random_string=$(head /dev/urandom | tr -dc 'a-z' | head -c 16)
+dig $random_string.target.com +short
+# If this resolves → wildcard DNS exists. Many subdomains are false positives.
+# Solution: resolve all subdomains, remove any that resolve to the wildcard IP.
+```
+
+### Reasoning Checkpoint
+```
+[PHASE-2] Passive Recon
+[SUBDOMAINS] {count from each source}
+[TOTAL-UNIQUE] {consolidated count}
+[WILDCARD-DNS] {yes/no — wildcard IP if yes}
+[GITHUB-FINDINGS] {any secrets, internal URLs, configs found}
+[NAMING-PATTERNS] {observed conventions}
+[DECISION] Proceed to active recon
+```
+
+---
+
+## Phase 3: Active Reconnaissance
+
+**Goal:** Touch the target infrastructure to discover live hosts, open ports, technologies, and behavior.
+
+### Step 3.1: DNS Resolution & Live Host Discovery
+
+```bash
+# Resolve all subdomains and check for live HTTP services
+cat all_subdomains.txt | httpx -silent -title -tech-detect -status-code -content-length -follow-redirects -web-server -cdn -o live_detailed.txt
+
+# Extract just live URLs
+cat live_detailed.txt | awk '{print $1}' > live_hosts.txt
+```
+
+**Analyze the results immediately:**
+- Which subdomains are live? Which are dead?
+- Any unexpected status codes? (403 on an admin panel = interesting)
+- What technologies detected? (this guides skill selection later)
+- Any CDN/WAF detected? (this affects testing strategy)
+- Are there subdomains pointing to third-party services? (potential takeover)
+
+### Step 3.2: Subdomain Takeover Check
+
+Dead subdomains pointing to unclaimed cloud services = free subdomain takeover:
+```bash
+# Check for dangling CNAME records
+for sub in $(comm -23 all_subdomains.txt live_hosts_domains.txt); do
+  cname=$(dig +short CNAME $sub)
+  if [ ! -z "$cname" ]; then
+    echo "$sub → $cname"
+  fi
+done | tee potential_takeovers.txt
+
+# Automated check
+nuclei -l all_subdomains.txt -t takeovers/ -o takeover_results.txt
+```
+
+**Takeover-vulnerable services:** GitHub Pages (404), Heroku (No such app), AWS S3 (NoSuchBucket), Azure (NXDOMAIN on *.azurewebsites.net), Shopify, Fastly, Ghost, Surge, Tumblr, WordPress.com, Zendesk
+
+### Step 3.3: Port Scanning
+
+```bash
+# Extract unique IPs from live hosts
+cat live_hosts.txt | sed 's|https\?://||' | cut -d'/' -f1 | cut -d':' -f1 | sort -u > live_ips.txt
+
+# Fast scan of extended web ports
+naabu -list live_ips.txt -p 80,443,8080,8443,8000,8888,3000,3001,4443,5000,5001,9090,9443,9200,9300,27017,6379,11211 -o open_ports.txt
+
+# Scan ALL ports on high-priority targets only (slow)
+naabu -host priority-target.com -p - -o all_ports_priority.txt
+```
+
+**Non-standard ports are gold.** Port 8080 running an admin panel, port 3000 running a Node.js debug server, port 9200 exposing Elasticsearch — these are findings in themselves and often have weaker security than the main application.
+
+### Step 3.4: Technology Fingerprinting (Deep)
+
+Beyond automated detection, manually check:
+
+**Response headers:**
+```
+Server: nginx/1.21.3             → Nginx version (check for CVEs)
+X-Powered-By: Express            → Node.js/Express
+X-AspNet-Version: 4.0.30319     → ASP.NET version
+X-Drupal-Cache: HIT             → Drupal CMS
+X-Generator: WordPress 6.4      → WordPress version
+```
+
+**Cookie names:**
+```
+JSESSIONID                → Java (Spring, Tomcat)
+PHPSESSID                 → PHP
+.AspNetCore.Session       → ASP.NET Core
+connect.sid               → Express/Connect (Node.js)
+_session_id               → Rails
+csrftoken + sessionid     → Django
+laravel_session           → Laravel
+```
+
+**Error pages:**
+- Submit invalid input, malformed URLs, unsupported methods
+- Error pages reveal framework, version, debug mode, stack traces
+- Try: `/nonexistent`, `/?id='`, `/api/v1/`, trailing slashes, double slashes
+
+**Default files:**
+```bash
+# Technology indicators
+for host in $(cat live_hosts.txt); do
+  echo "=== $host ===" >> tech_indicators.txt
+  curl -s "$host/robots.txt" >> tech_indicators.txt
+  curl -s "$host/sitemap.xml" | head -5 >> tech_indicators.txt
+  curl -s "$host/wp-login.php" -o /dev/null -w "%{http_code}" >> tech_indicators.txt  # WordPress
+  curl -s "$host/wp-json/wp/v2/" -o /dev/null -w "%{http_code}" >> tech_indicators.txt  # WP REST API
+  curl -s "$host/administrator/" -o /dev/null -w "%{http_code}" >> tech_indicators.txt  # Joomla
+  curl -s "$host/user/login" -o /dev/null -w "%{http_code}" >> tech_indicators.txt  # Drupal
+  curl -s "$host/actuator" -o /dev/null -w "%{http_code}" >> tech_indicators.txt  # Spring Boot
+  curl -s "$host/actuator/health" -o /dev/null -w "%{http_code}" >> tech_indicators.txt
+  curl -s "$host/server-info" -o /dev/null -w "%{http_code}" >> tech_indicators.txt  # Apache
+  curl -s "$host/.env" -o /dev/null -w "%{http_code}" >> tech_indicators.txt  # Environment file
+  curl -s "$host/graphql" -d '{"query":"{ __typename }"}' -H "Content-Type: application/json" -o /dev/null -w "%{http_code}" >> tech_indicators.txt  # GraphQL
+done
+```
+
+### Step 3.5: WAF/CDN Identification
+
+Knowing the WAF changes your entire testing strategy:
+
+```bash
+# wafw00f
+wafw00f https://target.com
+
+# Manual indicators
+curl -s -I https://target.com | grep -i "cloudflare\|akamai\|cloudfront\|fastly\|incapsula\|sucuri\|barracuda\|f5\|imperva\|fortinet"
+```
+
+| WAF | Indicators | Testing Impact |
+|-----|-----------|---------------|
+| Cloudflare | `cf-ray`, `__cfduid`, `Server: cloudflare` | Blocks common SQLi/XSS, rate limits, may expose real IP via other subdomains |
+| AWS WAF | `x-amzn-requestid`, behind CloudFront | Rule-based blocking, check for bypass via HTTP methods |
+| Akamai | `Akamai-Origin-Hop`, `X-Akamai-*` | Aggressive, but focus on logic flaws WAF can't detect |
+| Imperva/Incapsula | `X-CDN: Incapsula`, `visid_incap_*` cookie | Rate limiting, IP reputation |
+| ModSecurity | `Mod_Security` in errors, 403 with rule IDs | Open-source rules, known bypasses |
+
+**WAF strategy:** WAFs block KNOWN attack patterns. They CANNOT block: business logic flaws, IDOR, authentication issues, authorization bypass, race conditions, or any vulnerability that uses legitimate-looking requests. When a WAF is present, prioritize logic-based testing over injection-based testing.
+
+### Step 3.6: Screenshot Capture
+
+```bash
+cat live_hosts.txt | gowitness file -f - -P screenshots/ --timeout 10
+```
+Visual recon quickly identifies: login pages, admin panels, API documentation, error pages, default installs, interesting applications. Skim all screenshots before moving to content discovery.
+
+### Reasoning Checkpoint
+```
+[PHASE-3] Active Recon
+[LIVE-HOSTS] {count}
+[DEAD-SUBS] {count — check for takeover}
+[OPEN-PORTS] {non-standard ports found}
+[TECHNOLOGIES] {stack summary per host}
+[WAF-CDN] {type detected}
+[TAKEOVER-CANDIDATES] {count}
+[DECISION] Proceed to content discovery
+```
+
+---
+
+## Phase 4: Content Discovery (Hidden Paths & Files)
+
+**Goal:** Find endpoints, files, and directories that aren't linked from the application's UI.
+
+### Step 4.1: Archival Mining (Wayback + Common Crawl)
+
+This is the highest-ROI recon activity. Old URLs reveal:
+- Deprecated endpoints that still work but have weaker security
+- Old API versions (`/api/v1/` when current is `/api/v3/`)
+- Removed but not deleted admin panels
+- Old JavaScript files with different (less secured) endpoints
+- Backup files left on the server
+- Development/staging paths accidentally exposed
+
+```bash
+# gau — aggregates Wayback, Common Crawl, URLScan, AlienVault
+gau target.com --threads 5 --o gau_raw.txt
+
+# waymore — enhanced Wayback mining with response download
+waymore -i target.com -mode U -oU waymore_urls.txt
+
+# Process results
+# Parameterized URLs (injection candidates)
+cat gau_raw.txt | grep "=" | uro | sort -u > parameterized_urls.txt
+
+# Interesting file types
+cat gau_raw.txt | grep -iE "\.(php|asp|aspx|jsp|json|xml|yaml|yml|config|conf|env|bak|old|orig|save|swp|sql|log|txt|md|ini|properties|toml)" | sort -u > interesting_files.txt
+
+# API endpoints
+cat gau_raw.txt | grep -iE "/(api|rest|graphql|v[0-9]+|ws|rpc|service|endpoint|internal|admin|dashboard|debug|test|manage|config)/" | sort -u > interesting_paths.txt
+
+# Potential sensitive files
+cat gau_raw.txt | grep -iE "(backup|dump|export|database|db\.|\.sql|\.tar|\.zip|\.gz|\.rar|\.7z|password|credential|secret|\.git|\.svn|\.env|\.config|\.htaccess|\.htpasswd|web\.config|appsettings|\.pem|\.key|\.crt)" | sort -u > sensitive_files.txt
+```
+
+### Step 4.2: Directory Brute-Force
+
+```bash
+# Use technology-appropriate wordlists
+# General
+ffuf -u https://target.com/FUZZ -w /usr/share/seclists/Discovery/Web-Content/raft-large-directories.txt -mc 200,301,302,403,405 -o ffuf_dirs.json
+
+# With extensions based on detected technology
+# PHP: -e .php,.phtml,.php5,.inc
+# Java: -e .jsp,.jsf,.do,.action
+# ASP.NET: -e .aspx,.ashx,.asmx,.config
+# Node.js: no extension needed, but try .json,.js
+
+# Common hidden gems
+ffuf -u https://target.com/FUZZ -w - -mc 200,301,302,403 << 'EOF'
+.git/HEAD
+.git/config
+.env
+.env.local
+.env.production
+.env.development
+.env.backup
+.DS_Store
+package.json
+composer.json
+Gemfile
+requirements.txt
+Dockerfile
+docker-compose.yml
+.dockerenv
+webpack.config.js
+next.config.js
+server.js
+app.js
+config.js
+config.json
+config.yaml
+.well-known/security.txt
+.well-known/openid-configuration
+swagger.json
+swagger-ui.html
+api-docs
+openapi.json
+graphql
+graphiql
+actuator
+actuator/health
+actuator/env
+actuator/beans
+actuator/mappings
+actuator/configprops
+info
+health
+status
+debug
+trace
+metrics
+monitoring
+phpinfo.php
+test.php
+info.php
+server-status
+server-info
+elmah.axd
+trace.axd
+backup
+backups
+admin
+administrator
+manager
+console
+panel
+portal
+internal
+EOF
+```
+
+### Step 4.3: Recursive Crawling
+
+```bash
+# katana — headless browser crawling that executes JavaScript
+katana -u https://target.com -d 5 -jc -kf all -ef css,png,jpg,gif,svg,ico,woff,woff2,ttf,eot -o crawled_urls.txt
+
+# Crawl with authentication (if you have test accounts)
+katana -u https://target.com -d 5 -jc -H "Cookie: session=YOUR_SESSION_COOKIE" -o crawled_authed.txt
+```
+
+**The authenticated crawl is critical.** Many endpoints are only visible when logged in. Crawl with each role level (user, admin) separately to map role-specific surfaces.
+
+### Step 4.4: robots.txt and sitemap.xml Analysis
+
+```bash
+for host in $(cat live_hosts.txt); do
+  robots=$(curl -s "$host/robots.txt" 2>/dev/null)
+  if [ ! -z "$robots" ]; then
+    echo "=== $host ===" >> robots_analysis.txt
+    echo "$robots" >> robots_analysis.txt
+    # Extract Disallow paths — these are PRIORITY TARGETS
+    echo "$robots" | grep -i "disallow" | awk '{print $2}' >> disallowed_paths.txt
+  fi
+  
+  sitemap=$(curl -s "$host/sitemap.xml" 2>/dev/null)
+  if echo "$sitemap" | grep -q "urlset\|sitemapindex"; then
+    echo "$sitemap" | grep -oE 'https?://[^<]+' >> sitemap_urls.txt
+  fi
+done
+```
+
+`Disallow` entries are telling you: "Please don't look here." In bug bounty, that's exactly where you look first.
+
+### Step 4.5: Nuclei Scanning
+
+```bash
+# Run in phases — most critical first
+nuclei -l live_hosts.txt -severity critical,high -o nuclei_crithigh.txt
+nuclei -l live_hosts.txt -t exposures/ -o nuclei_exposures.txt
+nuclei -l live_hosts.txt -t technologies/ -o nuclei_tech.txt
+nuclei -l live_hosts.txt -t misconfiguration/ -o nuclei_misconfig.txt
+nuclei -l live_hosts.txt -t cves/ -severity critical,high -o nuclei_cves.txt
+```
+
+### Reasoning Checkpoint
+```
+[PHASE-4] Content Discovery
+[ARCHIVAL-URLS] {count from gau/waymore}
+[PARAMETERIZED] {count — injection candidates}
+[INTERESTING-FILES] {count and notable types}
+[HIDDEN-DIRS] {notable discoveries from ffuf}
+[DISALLOWED-PATHS] {from robots.txt — priority targets}
+[NUCLEI-FINDINGS] {critical/high count}
+[DECISION] Proceed to JS analysis
+```
+
+---
+
+## Phase 5: JavaScript Analysis (Deep)
+
+See [js_analysis.md](./js_analysis.md) for comprehensive methodology.
+
+**Why this phase is critical:** Modern web applications ship their entire routing logic, API endpoint definitions, authentication flows, and sometimes secrets in JavaScript files. A thorough JS analysis often reveals more attack surface than all other recon phases combined.
+
+### Quick Summary
+
+```bash
+# 1. Collect ALL JS files (current + archived)
+cat gau_raw.txt crawled_urls.txt | grep -iE "\.js(\?|$)" | sort -u > all_js_urls.txt
+
+# 2. Download and beautify
+mkdir -p js/downloaded
+cat all_js_urls.txt | xargs -P 10 -I{} sh -c 'curl -s "{}" -o "js/downloaded/$(echo "{}" | md5sum | cut -d" " -f1).js"'
+
+# 3. Extract endpoints
+grep -rhoE '["'"'"'](\/[a-zA-Z0-9_/-]+)["'"'"']' js/downloaded/ | sort -u > js_endpoints.txt
+
+# 4. Extract secrets
+grep -rhoiE '(api[_-]?key|secret|password|token|auth|firebase|aws_|AKIA)[^\s,;)]{8,}' js/downloaded/ > js_secrets.txt
+
+# 5. Find source maps
+grep -rhoE 'sourceMappingURL=[^\s]+' js/downloaded/ > source_maps.txt
+```
+
+**Source maps are the holy grail.** If a `.map` file exists alongside a minified JS file, it contains the ORIGINAL source code with comments, variable names, and full application logic. Download and analyze every source map you find.
+
+---
+
+## Phase 6: API Discovery & Mapping
+
+**Goal:** Build a complete map of every API endpoint, its methods, parameters, authentication requirements, and response format.
+
+### Step 6.1: API Documentation Discovery
+
+```bash
+# Check all common API doc paths
+for host in $(cat live_hosts.txt); do
+  for path in /swagger.json /swagger-ui.html /swagger-ui/ /api-docs /api-docs.json /openapi.json /openapi/v3/api-docs /v1/api-docs /v2/api-docs /v3/api-docs /.well-known/openapi.json /docs/api /redoc /graphql /graphiql /playground /altair /api/explorer; do
+    code=$(curl -s -o /dev/null -w "%{http_code}" "$host$path" 2>/dev/null)
+    if [ "$code" != "404" ] && [ "$code" != "000" ]; then
+      echo "$host$path → $code" >> api_docs_found.txt
+    fi
+  done
+done
+```
+
+Swagger/OpenAPI documentation is a complete API blueprint. If found, it reveals every endpoint, parameter, data type, and authentication requirement.
+
+### Step 6.2: API Endpoint Compilation
+
+Merge ALL sources into one API endpoint list:
+```bash
+# Combine from: gau, wayback, crawling, JS extraction, API docs
+cat parameterized_urls.txt js_endpoints.txt crawled_urls.txt | grep -iE "/api/|/v[0-9]+/|/rest/|/graphql|/ws/" | sort -u > all_api_endpoints.txt
+```
+
+### Step 6.3: API Behavior Mapping
+
+For each API endpoint, test:
+```bash
+# What methods are accepted?
+for method in GET POST PUT PATCH DELETE OPTIONS HEAD; do
+  status=$(curl -s -X $method -o /dev/null -w "%{http_code}" "$endpoint")
+  echo "$method → $status"
+done
+
+# Is authentication required?
+curl -s "$endpoint"                                    # No auth
+curl -s -H "Authorization: Bearer invalid" "$endpoint" # Invalid auth
+curl -s -H "Authorization: Bearer $TOKEN" "$endpoint"  # Valid auth
+
+# What Content-Type is accepted?
+curl -s -X POST "$endpoint" -H "Content-Type: application/json" -d '{}'
+curl -s -X POST "$endpoint" -H "Content-Type: application/xml" -d '<root/>'
+curl -s -X POST "$endpoint" -H "Content-Type: application/x-www-form-urlencoded" -d 'key=value'
+```
+
+### Step 6.4: API Version Discovery
+
+If you find `/api/v3/users`, always check:
+```
+/api/v1/users   — older, potentially less protected
+/api/v2/users   — intermediate version
+/api/v0/users   — pre-release
+/api/beta/users — beta version
+/api/internal/users — internal-only version (jackpot if accessible)
+```
+Old API versions often lack security improvements added to newer versions.
+
+---
+
+## Phase 7: Authentication Flow Mapping
+
+**Goal:** Understand every authentication mechanism, identify the session management approach, and map the trust boundaries.
+
+### Step 7.1: Identify Auth Mechanisms
+
+- Username/password login
+- Social login (OAuth — Google, Facebook, GitHub, etc.)
+- SSO (SAML, OpenID Connect)
+- API key in header
+- JWT in Authorization header
+- Certificate-based auth
+- MFA (TOTP, SMS, email)
+
+### Step 7.2: Map the Login Flow
+
+Proxy every request during login:
+1. What endpoint receives credentials?
+2. How is the session established? (Set-Cookie? JWT in response body?)
+3. Is there a CSRF token on the login form?
+4. What happens after login? (redirect? API call?)
+5. Is there a "remember me" function? (how is it implemented?)
+
+### Step 7.3: Map Password Reset Flow
+
+1. What information is needed to initiate reset?
+2. How is the reset token delivered? (email, SMS)
+3. What does the reset link look like? (predictable token?)
+4. Can the reset token be reused?
+5. Does the reset token expire?
+6. What happens after password change? (are sessions invalidated?)
+
+### Step 7.4: Map Registration Flow
+
+1. What fields are required?
+2. Is email verification required?
+3. Can you register with any email domain?
+4. Are there hidden fields in the registration request?
+5. What role is assigned to new users? (check the response)
+
+---
+
+## Phase 8: Parameter Mining
+
+**Goal:** Discover hidden parameters that the server processes but the frontend doesn't expose.
+
+```bash
+# Arjun — parameter discovery
+arjun -u "https://target.com/endpoint" -m GET POST -oJ params_arjun.json
+
+# From archived URLs — extract all parameter names ever used
+cat gau_raw.txt | grep "?" | cut -d'?' -f2 | tr '&' '\n' | cut -d'=' -f1 | sort | uniq -c | sort -rn > all_param_names.txt
+
+# High-interest parameter names to always check for
+# id, user_id, account_id, org_id, admin, role, debug, test, internal
+# redirect, url, next, return, callback, goto, dest, forward
+# file, path, dir, page, template, include, load, read, fetch
+# cmd, exec, command, run, query, search, filter, sort, order
+# config, setting, option, preference, feature, flag, toggle
+```
+
+**Think about what parameters COULD exist.** If the API returns a `role` field in GET responses but the UI doesn't include `role` in PUT requests, try adding it. If there's a `debug` parameter in archived URLs but not in the current version, try it — debug mode might still be enabled.
+
+---
+
+## Phase 9: Technology Profiling Summary
+
+Compile everything you've learned into a tech profile:
+
+```
+[TECH-PROFILE]
+Frontend: React 18 / Next.js (detected from JS, __next/ paths)
+Backend: Node.js/Express (connect.sid cookie, X-Powered-By)
+Database: PostgreSQL (error messages)
+CDN: Cloudflare (cf-ray header)
+WAF: Cloudflare WAF (detected by wafw00f)
+Auth: JWT (RS256, JWKS at /.well-known/jwks.json)
+API: REST + GraphQL (Swagger at /api-docs, GraphQL at /graphql)
+Cloud: AWS (S3 URLs in JS, EC2 metadata references)
+Container: Kubernetes (K8s error pages on specific ports)
+```
+
+This profile directly maps to skill selection in the index.
+
+---
+
+## Phase 10: Attack Surface Prioritization
+
+**Goal:** Rank all discovered targets by likelihood and impact of findings.
+
+### Prioritization Matrix
+
+**Tier 1 — Test First (highest ROI):**
+- Authentication endpoints (login, register, password reset, OAuth callbacks)
+- API endpoints with object IDs (`/users/123`, `/orders/456`)
+- Endpoints accepting URLs/redirects
+- Admin panels and internal tools
+- API endpoints that work WITHOUT authentication
+- Old API versions (`/v1/` when `/v3/` is current)
+- Non-standard ports running web services
+- Endpoints with `debug`, `test`, `internal` in the path
+
+**Tier 2 — Test Second:**
+- File upload/download functionality
+- Search/filter functionality (injection candidates)
+- GraphQL endpoints
+- WebSocket connections
+- Multi-step workflows (checkout, approval, onboarding)
+- User profile/settings modification endpoints
+
+**Tier 3 — Test When Tier 1 & 2 Are Done:**
+- Standard CRUD endpoints with strong authz
+- Public-facing content pages (XSS surface)
+- CORS configuration on APIs
+- Cookie/session security attributes
+- Rate limiting on sensitive operations
+
+### Signal-to-Skill Mapping
+
+| Observed Signal | Primary Skill | Secondary Skill |
+|----------------|--------------|-----------------|
+| Parameter in database query context | [[sqli]] | |
+| User input reflected in HTML | [[xss]] | [[ssti]] |
+| Object ID in URL/body | [[idor]] | [[mass-assignment]] |
+| URL/redirect parameter | [[ssrf]] | [[open-redirect]] |
+| JWT in auth header | [[jwt]] | [[session-management]] |
+| OAuth redirect flow | [[oauth]] | |
+| File upload feature | [[file-upload]] | [[xxe]] |
+| XML/SOAP accepted | [[xxe]] | [[sqli]] |
+| JSON merge/update endpoint | [[prototype-pollution]] | [[mass-assignment]] |
+| State-changing without CSRF token | [[csrf]] | |
+| GraphQL endpoint | [[graphql]] | [[idor]] |
+| Cloud-hosted application | [[cloud-misconfig]] | [[ssrf]] |
+| Reverse proxy headers present | [[http-smuggling]] | [[cache-poisoning]] |
+| Cache headers present | [[cache-poisoning]] | |
+| Limit-enforced operation | [[race-condition]] | [[business-logic]] |
+| Multi-step workflow | [[business-logic]] | [[race-condition]] |
+| Template rendering with user input | [[ssti]] | [[xss]] |
+| Deserialization indicators | [[deserialization]] | |
+| LDAP/AD authentication | [[ldap-injection]] | |
+| SSI directives in responses | [[ssi-injection]] | |
+| File path in parameters | [[path-traversal]] | [[command-injection]] |
+| Shell-like functionality | [[command-injection]] | |
+| WebSocket upgrade | [[websocket]] | |
+| CORS headers in response | [[cors]] | |
+
+### Final Output Format
+
+```
+[RECON-COMPLETE]
+[DURATION] {time spent on recon}
+[SUBDOMAINS] {total discovered → live}
+[ENDPOINTS] {total unique}
+[API-ENDPOINTS] {count}
+[PARAMETERS] {interesting count}
+[JS-FILES] {analyzed count}
+[SECRETS-FOUND] {types — never log actual values}
+[TECHNOLOGIES] {stack summary}
+[WAF] {type or none}
+
+[PRIORITY-TARGETS]
+1. POST /api/v1/users/{id}/profile — Sequential ID, no rate limit → [[idor]]
+2. GET /search?q= — Reflected in page title → [[xss]], [[sqli]]
+3. POST /api/webhook — Accepts URL parameter → [[ssrf]]
+4. /graphql — Introspection enabled → [[graphql]]
+5. POST /upload — Accepts multiple file types → [[file-upload]]
+6. GET /api/v1/admin/users — Returns 403 (not 404) → [[idor]], [[jwt]]
+...
+
+[SESSION-LOG] Saved to notes/session_log.md
+[NEXT-STEP] Load skills/index.md → select first skill from priority targets
+```
+
+---
+
+## Session Re-verification
+
+If recon spans multiple sessions:
+- Read `notes/session_log.md` before continuing
+- Re-verify scope (programs update their scope)
+- Re-check live hosts (infrastructure changes)
+- Don't repeat completed phases — continue from where you left off
+
+---
+
+## Things to Do
+
+- Run ALL passive sources before any active scanning — you need breadth first
+- Check for wildcard DNS BEFORE trusting subdomain results
+- Mine Wayback Machine aggressively — it's the richest source of hidden endpoints
+- Analyze EVERY JavaScript file for endpoints, secrets, and source maps
+- Check `robots.txt` `Disallow` entries — they're your highest-priority targets
+- Crawl with authentication — many endpoints only appear when logged in
+- Test old API versions — they often have weaker security
+- Check non-standard ports — they often run unprotected services
+- Document everything in the session log as you go — this is your memory
+- Look for naming patterns in subdomains and generate permutations
+- Identify the WAF early — it changes your entire testing strategy
+
+## Things Not to Do
+
+- Do not start active vulnerability testing before recon is complete
+- Do not run noisy port scans without checking program rules first
+- Do not rely on a single subdomain source — combine 5+ sources minimum
+- Do not skip JavaScript analysis — it's where the best hidden attack surface lives
+- Do not trust automated scanners alone — manual analysis finds what scanners miss
+- Do not ignore dead subdomains — they may be takeover candidates
+- Do not store actual secrets in your session log — log TYPE and LOCATION only
+- Do not skip the technology profiling step — it directly guides skill selection
+- Do not forget to crawl authenticated surfaces — many endpoints require login to discover
+
+---
+
+## Cross-Skill Links
+
+After recon, navigate to [[skills/index.md]] and select skills based on the priority target list. The signal-to-skill mapping table above guides selection.
