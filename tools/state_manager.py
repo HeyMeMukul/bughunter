@@ -169,6 +169,9 @@ def cmd_status(state: dict) -> None:
     # Concurrency status
     worker_lock = state.get("_concurrency", {})
     active_tasks = worker_lock.get("active_tasks", {})
+    if worker_lock.get("worker_active") and not active_tasks:
+        legacy = worker_lock.get("active_task") or "legacy-worker"
+        active_tasks = {legacy: {"started_at": worker_lock.get("task_started_at"), "slot": 1}}
     if active_tasks:
         max_workers = int(state.get("_settings", {}).get("parallel_workers", 1))
         print(f"  🔒 Workers ACTIVE: {len(active_tasks)}/{max_workers}")
@@ -260,6 +263,10 @@ def cmd_unlock_worker(state: dict, task_name: str | None = None) -> None:
         return
 
     active = conc.setdefault("active_tasks", {})
+    # Migrate a legacy single-worker lock before resolving the requested task.
+    if conc.get("active_task") and not active:
+        legacy = conc.get("active_task")
+        active[legacy] = {"started_at": conc.get("task_started_at") or now_iso(), "slot": 1}
     task = task_name or conc.get("active_task") or (next(iter(active)) if active else "?")
     if task not in active:
         print("[INFO] Worker task was not found — nothing to unlock.")
