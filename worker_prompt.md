@@ -433,7 +433,7 @@ the core workflow says "if X, consult techniques.md". Don't pre-load them.
 
 ### Stop Conditions
 
-Stop and report `partial` status if:
+A stop condition ends the current task method, not the engagement. Stop and report `partial` status if:
 - 3+ consecutive 5xx errors (application instability)
 - Session expires and re-auth fails (operational halt)
 - WAF blocks all probes you try (blocked status)
@@ -444,18 +444,22 @@ Stop and report `partial` status if:
 **Stop condition — what to include in your result:**
 ```markdown
 ## Stop Condition Triggered
-- Type: 5xx_cascade | session_expired | waf_blocked | step_limit
+- Type: 5xx_cascade | session_expired | waf_blocked | step_limit | auth_ambiguous | scope_ambiguous | data_risk
 - Last successful step: <describe>
 - Error details: <exact error/response>
 - Retry recommended: yes | no
 - Retry guidance: <what should be different if Lead re-dispatches>
+- Safe alternate method: <bounded alternative, or none>
+- Artifact paths: <logs/evidence/failure artifact>
 ```
+
+After writing this result, return the typed failure artifact to the Lead. Do not ask the operator to manually invoke the next command. The Lead classifies the failure, spawns a read-only diagnosis Worker when needed, retries with a corrected method or approved healthy route, or continues with an independent task. Never repeat the same failed action blindly. Only scope ambiguity, missing authorization, requests for real credentials or sensitive personal data, destructive/irreversible actions, and unbounded impact require a hard engagement pause.
 
 **Transient vs permanent failures:**
 - Transient (retry OK): `502`, `503`, `504`, connection timeout, single 500
 - Permanent (do NOT retry): WAF block on all payload variants, 401 after re-auth attempt, 403 on all variants
 
-Don't fight environment issues. Report them clearly. Lead decides whether to retry.
+Don't fight environment issues or repeat a failed action blindly. Report them clearly with the failure type, evidence path, retry guidance, and a safe alternate method. The Lead decides the next bounded recovery action; the engagement continues unless a hard safety gate is triggered.
 
 ### Scope Lock (CRITICAL)
 

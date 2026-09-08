@@ -1,5 +1,16 @@
 # Changelog — Framework v4 (The GOATED Framework)
 
+## v4.4.0 — Autonomous Continuation + Failure Recovery (August 2026)
+
+### Lead/Worker orchestration
+- **Added:** autonomous continuation after authorization and scope are established; the Lead dispatches validated tasks without waiting for manual slash-command invocation.
+- **Added:** bounded recovery ladder with failure classification, read-only diagnosis Workers, corrected retries, alternate safe methods, and independent-task continuation.
+- **Added:** explicit distinction between RESERVED and RUNNING Worker slots and required result or typed failure artifacts.
+- **Updated:** hard-stop boundaries remain for scope ambiguity, missing authorization, sensitive credentials/data, destructive or irreversible actions, and unbounded impact.
+- **Updated:** `lead_prompt.md`, `worker_prompt.md`, and `AGENTS.md` with the new continuation contract.
+
+---
+
 ## v4.3.0 — Bounded Parallel Workers + Accurate Usage (August 2026)
 
 ### Orchestration

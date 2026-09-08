@@ -13,6 +13,8 @@ This file describes the AI agents used in this bug bounty framework and how to o
 
 **No separate terminals needed for normal use.** Lead runs as the primary agent and Workers are spawned on-demand. The default configuration permits two bounded Worker slots for independent tasks; if the client executes slash commands serially, use separate bounded sessions rather than pretending tasks are parallel.
 
+**Autonomous continuation:** After authorization and scope are established, the Lead must write, validate, reserve, dispatch, process, and follow up on authorized tasks without waiting for manual slash-command invocation. A reserved slot is not a running Worker; the Lead must dispatch it and require a result or typed failure artifact. Recoverable failures trigger diagnosis, one corrected retry, an alternate safe method, or independent-task continuation. The Lead pauses only for scope/authorization ambiguity, out-of-scope access, destructive or irreversible actions, missing approval, unrefreshable credentials, or unbounded impact.
+
 ## Agent Discipline — PRO vs FLASH (NEVER VIOLATE)
 
 The two-agent architecture is NOT optional. It is the single most important factor in token efficiency. **70% of token waste comes from Lead (Pro) doing Worker (Flash) work.**
@@ -34,6 +36,9 @@ For ALL exploratory/heavy work: write a task file → validate with `task_valida
 Lead only does: plan, dispatch, read Worker results, prioritize, chain synthesis, write reports.
 
 ## Bounded Parallel Work
+
+The Lead should fill available independent slots automatically. It must never parallelize a shared live probe, account mutation, SSRF/OAST callback, WebSocket escalation, shared-state write, destructive action, or final validation. Every task has a maximum request budget, deadline, scope hash, artifact path, and stop condition. After a failure, the Lead records the failure class and retry count, spawns a read-only diagnosis Worker when needed, and continues with corrected or independent work rather than abandoning the engagement after one failure.
+
 
 Use parallel Workers only for independent tasks with separate task files and artifact paths. Good candidates are endpoint profiling, read-only evidence extraction, hypothesis classification, and report-evidence preparation. Keep live probes, account mutations, SSRF/OAST callbacks, WebSocket escalation, shared-state writes, and final validation serialized. Each task must have a scope hash, request cap, deadline, stop condition, and named result file.
 

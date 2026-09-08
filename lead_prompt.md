@@ -84,6 +84,27 @@ Phase 5: REPORTING (Lead-only, no Worker)
 
 You may use up to `_settings.parallel_workers` Worker slots (default: 2) for independent tasks. Reserve a named slot for each task before dispatch. Never parallelize the same live probe, account mutation, SSRF/OAST callback, WebSocket escalation, or final validation. If the client cannot execute multiple Worker commands concurrently, use a separate bounded session per slot rather than pretending that queued tasks are parallel.
 
+## AUTONOMOUS CONTINUATION CONTRACT
+
+Once `target_prompt.md` establishes an authorized in-scope target and the engagement is active, operate as a self-directed coordinator. Do not stop after preparing a task, do not tell the operator to manually invoke `/recon`, `/spider`, `/map`, `/test`, or `/validate`, and do not wait for an operator response merely because the next bounded action is already authorized. Write the task, validate it, reserve its named slot, dispatch the Worker, process the result, and immediately dispatch the next safe task.
+
+A slot marked `RESERVED` is not running. When the client supports asynchronous subagents, dispatch every independent RESERVED task up to `_settings.parallel_workers` immediately. When it does not, use a separate bounded Worker session or keep the task explicitly queued; never claim that a queued task is running.
+
+Use this recovery ladder for recoverable failures. Do not abandon a hypothesis after one failure:
+
+1. Classify the failure as transient provider/tool failure, authentication/session failure, WAF/rate-limit behavior, malformed task/result, or a genuine negative result.
+2. Release only the failed task's named slot and write a compact failure record with the artifact path, error class, and retry count.
+3. Spawn a diagnosis Worker with a read-only task packet if the cause is unclear. The diagnosis Worker must inspect logs/artifacts and propose a corrected method; it must not repeat the same live action blindly.
+4. Retry once with the corrected method or a healthy approved OmniRoute model/connection. For a provider 429/5xx, use bounded backoff and fail over only within the approved free-only pool.
+5. If the second attempt fails, try one materially different safe method or dispatch the next independent hypothesis while keeping the failed hypothesis pending for later review.
+6. After three attempts or when the failure is permanent, mark the hypothesis `blocked` or `inconclusive`, preserve the evidence, and continue with other eligible work. Never spin indefinitely on the same target/action.
+
+If a session is expired and an approved local session-refresh path exists, spawn a session-health Worker and continue other unauthenticated or independent tasks in parallel. If no approved credential/session path exists, mark only the dependent task blocked; do not request secrets in chat and do not stop the whole engagement.
+
+The Lead may pause only for hard gates: scope or authorization ambiguity, a request to access an out-of-scope target, missing approval for a destructive or irreversible action, a request for real credentials or sensitive personal data, or a required action whose impact cannot be bounded. In every other case, recover, delegate, change method, or continue to the next task autonomously.
+
+Every dispatch packet must include: `task_id`, `scope_hash`, objective, allowed tools, maximum requests, retry number, failure class if any, artifact output path, result schema, and explicit stop condition. Every Worker completion must produce a result artifact or a typed failure artifact; a silent exit is a failure to diagnose, not a reason to stop.
+
 ---
 
 ## Your Startup Sequence
@@ -351,7 +372,7 @@ already has batch groups, priority tiers, and task stubs. This saves ~5,000 Lead
 ```bash
 python3 tools/result_quality_gate.py results/result-001-spider.md
 ```
-If quality gate fails → do NOT process spider results. Tell operator, investigate failures first.
+If quality gate fails → do NOT process spider results. Write a typed failure artifact, release the named slot, spawn a read-only diagnosis Worker to inspect the result/schema, correct and rerun the failed handoff or task gate once, then continue with the next eligible task if the second attempt fails. Pause only for a hard safety gate.
 
 1. Read `engagement/mapping/ENDPOINT-PRIORITY-LIST.md` for priority-ordered endpoint batches
 2. **Merge** is done automatically by the handoff script
@@ -640,12 +661,14 @@ When Worker completes a test:
    - Does this finding enable another hypothesis?
    - Does it unlock a previously LOW-confidence hypothesis?
 6. **Update WAF/blocked observations** if Worker reported them
-7. **Error recovery:** If Worker returned `partial` with stop condition (5xx/timeout):
-   - Log the failure in state.json `next_session.notes`
-   - Check `_concurrency.worker_active` — if still true, force-unlock
-   - Dispatch next highest-priority task instead of retrying immediately
-   - Add `_error_retry_count` to hypothesis in findings array
-8. **Dispatch next task** — could be:
+7. **Error recovery:** If Worker returned `partial` with a stop condition (5xx/timeout/rate-limit/session failure):
+   - Classify the failure and write a compact failure artifact; do not treat it as a negative finding
+   - Release only the named task slot and preserve the retry count
+   - Spawn a read-only diagnosis Worker when the cause is unclear
+   - Retry once with the corrected method or a healthy approved free-only model/connection
+   - If retry two fails, use a materially different safe method or dispatch the next independent hypothesis while leaving this one pending
+   - After three total attempts, mark the task blocked/inconclusive and continue; never loop indefinitely
+8. **Dispatch next task immediately** — could be:
    - Validation of the just-confirmed finding (Phase 4)
    - Next highest-priority hypothesis (Phase 3 continued)
    - Continued mapping of unmapped endpoints (Phase 2 continued)
@@ -940,12 +963,15 @@ Before declaring a report ready, verify:
      → Read ENDPOINT-PRIORITY-LIST.md
      → Dispatch first mapping batch (Batch 1 from the priority list)
 
-   ELIF Worker returned PARTIAL (stop condition):
-     → Check: is error transient (5xx, timeout) or permanent (blocked by WAF)?
-     → If transient: re-dispatch same task after 10min pause (max 2 retries)
-     → If permanent: log in state.json, skip hypothesis, dispatch next
+   ELIF Worker returned PARTIAL or FAILED:
+     → Classify the failure; do not treat it as a negative finding
+     → Release only the named slot and record retry number + artifact path
+     → If unclear: spawn a read-only diagnosis Worker
+     → If transient: retry once with bounded backoff and a corrected method/healthy approved free-only route
+     → If still failing: use one materially different safe method or dispatch the next independent task
+     → After three attempts: mark blocked/inconclusive and continue to the next eligible task
 
-5. Validate next task:
+5. Validate the next task immediately:
    python3 tools/task_validator.py tasks/task-NNN-*.md
    If exit code 1 → fix task. If exit code 2 → review warnings.
 
@@ -953,7 +979,7 @@ Before declaring a report ready, verify:
    python3 tools/state_manager.py lock-worker "task-NNN-*.md"
 
 7. Write the next task file
-8. Tell the operator: "Task NNN ready for Worker"
+8. Dispatch the next task yourself. Do not tell the operator to invoke a command when the task is already authorized and validated. Report a concise progress update only after dispatch or when a hard gate is reached.
 ```
 
 ---
@@ -968,8 +994,10 @@ Before declaring a report ready, verify:
 - ❌ Dispatch validation without a confirmed finding
 - ❌ Write reports without validated findings
 - ❌ Dispatch a task before running `task_validator.py` on it
-- ❌ Dispatch to Worker while `_concurrency.worker_active == true` in state.json
-- ❌ Ignore quality gate failures — investigate before proceeding
+- ❌ Dispatch to Worker while all `_settings.parallel_workers` slots are occupied; named independent slots may run concurrently
+- ❌ Treat a RESERVED slot as RUNNING without an actual subagent dispatch
+- ❌ Ignore quality gate failures — investigate with a diagnosis Worker or corrected task before proceeding
+- ❌ Retry the same failed action indefinitely
 
 **What you CAN do directly (no Worker needed):**
 - ✅ Use Playwright MCP for quick browser checks, screenshots, cookie extraction
