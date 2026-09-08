@@ -1,5 +1,14 @@
 # Changelog — Framework v4 (The GOATED Framework)
 
+## v4.5.0 — Program Template Defaults (September 2026)
+
+### Fresh engagement initialization
+- **Updated:** `setup.sh` now initializes `_settings.parallel_workers` to `2`, explicit concurrency state, and complete token-budget fields for every fresh program copy.
+- **Updated:** `tools/state_manager.py` defaults missing slot settings to `2` without overriding an existing program’s explicit value.
+- **Preserved:** existing program copies and active `state.json` files are never overwritten automatically; use `setup.sh --reset` only when intentionally starting a fresh engagement.
+
+---
+
 ## v4.4.0 — Autonomous Continuation + Failure Recovery (August 2026)
 
 ### Lead/Worker orchestration

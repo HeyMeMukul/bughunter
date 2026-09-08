@@ -173,7 +173,7 @@ def cmd_status(state: dict) -> None:
         legacy = worker_lock.get("active_task") or "legacy-worker"
         active_tasks = {legacy: {"started_at": worker_lock.get("task_started_at"), "slot": 1}}
     if active_tasks:
-        max_workers = int(state.get("_settings", {}).get("parallel_workers", 1))
+        max_workers = int(state.get("_settings", {}).get("parallel_workers", 2))
         print(f"  🔒 Workers ACTIVE: {len(active_tasks)}/{max_workers}")
         for task, info in active_tasks.items():
             print(f"     Slot {info.get('slot', '?')}: {task} (started {info.get('started_at', '?')})")
@@ -231,7 +231,7 @@ def cmd_lock_worker(state: dict, task_name: str) -> None:
     """Set the worker_active lock."""
     conc = state.setdefault("_concurrency", {})
     settings = state.setdefault("_settings", {})
-    max_workers = max(1, int(settings.get("parallel_workers", 1)))
+    max_workers = max(1, int(settings.get("parallel_workers", 2)))
     active = conc.setdefault("active_tasks", {})
     # Migrate the legacy single-worker representation once.
     if conc.get("worker_active") and not active:

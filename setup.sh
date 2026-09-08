@@ -316,7 +316,30 @@ init_state_json() {
   "chains_identified": [],
   "blocked_chars": {},
   "waf_observations": [],
-  "next_session": {}
+  "next_session": {},
+  "_settings": {
+    "parallel_workers": 2,
+    "worker_timeout_minutes": 90,
+    "external_intel_enabled": false
+  },
+  "_concurrency": {
+    "worker_active": false,
+    "active_task": null,
+    "task_started_at": null,
+    "active_tasks": {}
+  },
+  "_token_budget": {
+    "request_context_limit": 128000,
+    "session_budget_tokens": 800000,
+    "estimated_reserved_tokens": 0,
+    "actual_input_tokens": 0,
+    "actual_output_tokens": 0,
+    "actual_cache_read_tokens": 0,
+    "actual_total_tokens": 0,
+    "last_usage_sync_at": null,
+    "last_usage_sync_source": null,
+    "task_log": []
+  }
 }
 STATEEOF
 }
