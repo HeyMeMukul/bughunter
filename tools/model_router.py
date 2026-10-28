@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
 model_router.py — Token-Optimized Model Routing
-Routes tasks to the right model (Pro vs Flash) based on complexity scoring.
-Pro = strategic decisions, Flash = tactical execution.
+Routes tasks to the right model (Lead vs Worker) based on complexity scoring.
+Lead = Muse Spark 1.3 Contributor high thinking (strategy),
+Worker = Muse Spark 1.3 Contributor default thinking (execution),
+Fallback = DeepSeek V4.1 Flash (429/5xx/capacity).
 """
 
 import json
@@ -14,9 +16,15 @@ from typing import Dict, Any
 class ModelRouter:
     """Routes framework tasks to optimal model based on complexity."""
 
-    # Task complexity scores — higher = needs Pro
+    LEAD_MODEL = "opencode-go/muse-spark-1.3-contributor"
+    LEAD_VARIANT = "high"
+    WORKER_MODEL = "opencode-go/muse-spark-1.3-contributor"
+    WORKER_VARIANT = "default"
+    FALLBACK_MODEL = "opencode-go/deepseek-v4.1-flash"
+
+    # Task complexity scores — higher = needs Lead
     COMPLEXITY_SCORES = {
-        # Strategic tasks (Pro)
+        # Strategic tasks (Lead)
         "chain_synthesis": 10,
         "report_writing": 9,
         "hypothesis_prioritization": 8,
@@ -27,7 +35,7 @@ class ModelRouter:
         "program_profiling": 6,
         "recon_analysis": 5,
 
-        # Tactical tasks (Flash)
+        # Tactical tasks (Worker)
         "recon_execution": 3,
         "spider_execution": 2,
         "mapping_execution": 4,
@@ -69,7 +77,7 @@ class ModelRouter:
         "cookie_extraction": 200,
     }
 
-    PRO_THRESHOLD = 5  # Tasks with complexity >= 5 go to Pro
+    PRO_THRESHOLD = 5  # Tasks with complexity >= 5 go to Lead
 
     def route(self, task_type: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """Route a task to the appropriate model."""
@@ -89,17 +97,28 @@ class ModelRouter:
             if context.get("first_engagement", False):
                 complexity += 1
 
-        model = "pro" if complexity >= self.PRO_THRESHOLD else "flash"
+        if complexity >= self.PRO_THRESHOLD:
+            model = "lead"
+            model_id = self.LEAD_MODEL
+            variant = self.LEAD_VARIANT
+            reason = "Lead (Muse Spark 1.3 high): strategic reasoning required"
+        else:
+            model = "worker"
+            model_id = self.WORKER_MODEL
+            variant = self.WORKER_VARIANT
+            reason = "Worker (Muse Spark 1.3 default): tactical execution sufficient"
 
         return {
             "task_type": task_type,
             "complexity": complexity,
             "estimated_tokens": token_cost,
             "recommended_model": model,
-            "reason": (
-                "Pro: strategic reasoning required" if model == "pro"
-                else "Flash: tactical execution sufficient"
-            ),
+            "recommended_model_id": model_id,
+            "recommended_variant": variant,
+            "lead_variant": self.LEAD_VARIANT,
+            "worker_variant": self.WORKER_VARIANT,
+            "fallback_model_id": self.FALLBACK_MODEL,
+            "reason": reason,
         }
 
     def estimate_session_tokens(self, tasks: list) -> Dict[str, Any]:
@@ -136,7 +155,7 @@ class ModelRouter:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Model Router — Pro vs Flash task routing")
+    parser = argparse.ArgumentParser(description="Model Router — Lead (Muse Spark 1.3 high) vs Worker (Muse Spark 1.3 default) task routing")
     parser.add_argument("--task", help="Task type to route")
     parser.add_argument("--context", help="JSON context for complexity adjustment")
     parser.add_argument("--session-plan", help="JSON file with session task plan")
@@ -149,7 +168,7 @@ def main():
         print("Task Types and Recommended Models:")
         print("-" * 50)
         for task, complexity in sorted(router.COMPLEXITY_SCORES.items(), key=lambda x: x[1], reverse=True):
-            model = "PRO" if complexity >= router.PRO_THRESHOLD else "FLASH"
+            model = "LEAD" if complexity >= router.PRO_THRESHOLD else "WORKER"
             cost = router.TOKEN_COSTS.get(task, 1000)
             print(f"  {task:30s} [{model}] complexity={complexity} tokens={cost:,}")
         return

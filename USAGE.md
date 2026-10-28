@@ -4,7 +4,7 @@
 
 1. `./setup.sh "https://target.com" "program-name"` — initializes engagement, launches Chrome
 2. Manually log in to both Chrome windows (ports 9222, 9223)
-3. Start ONE opencode session (Lead = DeepSeek V4 Pro) — it auto-spawns Worker subagents
+3. Start ONE opencode session (Lead = Muse Spark 1.3 Contributor `opencode-go/muse-spark-1.3-contributor` high) — it auto-spawns Worker subagents (same model, variant default; fallback `opencode-go/deepseek-v4.1-flash`)
 4. First message: "Read all prompts. Dispatch Phase 0 Recon. Then Phase 1 Spidering."
 5. Lead writes tasks → spawns Worker subagents → reads results → repeats
 
@@ -62,7 +62,7 @@ Phase architecture detail: `phases/PHASE_ARCHITECTURE.md`
 | `tools/oob_validator.py` | OOB callback validation + payload correlation |
 | `tools/chain_automation.py` | Automated M9 chain synthesis from endpoint profiles |
 | `tools/fp_database.py` | False positive pattern database with confidence adjustment |
-| `tools/model_router.py` | Pro vs Flash model routing based on task complexity |
+| `tools/model_router.py` | Lead (Muse Spark 1.3 high) vs Worker (Muse Spark 1.3 default) task classification with DeepSeek V4.1 Flash fallback |
 
 ## MCP Servers (6 total)
 
@@ -107,7 +107,7 @@ Phase architecture detail: `phases/PHASE_ARCHITECTURE.md`
 
 ## Token Budget (Per Engagement)
 
-| Phase | Lead (Pro) | Worker (Flash) | Total |
+| Phase | Lead (Muse Spark 1.3 high) | Worker (Muse Spark 1.3 default) | Total |
 |-------|-----------|---------------|-------|
 | Startup | 6,000 | 1,000 | 7,000 |
 | Phase 0 Recon | 500 | 1,000 | 1,500 |
@@ -125,7 +125,7 @@ Phase architecture detail: `phases/PHASE_ARCHITECTURE.md`
 
 1. **Phase 0 FIRST.** Always. Infrastructure recon expands attack surface 5-10x.
 2. **OOB-first testing.** Every Phase 3 test starts with interactsh/OOB callbacks.
-3. **Pro = Strategy, Flash = Execution.** Pro for chain synthesis/reporting, Flash for tool running/testing.
+3. **Muse Spark 1.3 high = Strategy, Muse Spark 1.3 default = Execution.** Lead (high) for chain synthesis/reporting, Worker (default) for tool running/testing. Fallback both to DeepSeek V4.1 Flash on 429/5xx.
 4. **Phase discipline.** Don't skip. Recon before spider. Spider before mapping. Mapping before testing.
 5. **Smart overlap.** Testing dispatches for mapped endpoints while other endpoints are still mapping.
 6. **Tool-first for mechanical.** Tools produce JSON, Lead reads JSON — not raw HTTP.

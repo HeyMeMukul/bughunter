@@ -8,18 +8,19 @@ This file describes the AI agents used in this bug bounty framework and how to o
 
 | Agent | Role | Model | How It Runs |
 |-------|------|-------|-------------|
-| **Lead** | Strategic coordinator. Plans, analyzes, dispatches tasks, writes reports, runs M9 chain synthesis, and prioritizes hypotheses. | OmniRoute `auto/reasoning:free` | Primary agent in opencode session |
-| **Worker** | Tactical executor. Runs tools (recon, spider, mapping, testing, validation), writes structured results, and stays inside one hypothesis. | OmniRoute `auto/coding:free` | Spawned as subagent via `/worker` command |
+| **Lead** | Strategic coordinator. Plans, analyzes, dispatches tasks, writes reports, runs M9 chain synthesis, and prioritizes hypotheses. | `opencode-go/muse-spark-1.3-contributor` (variant `high`) | Primary agent in opencode session (`agent.build` in `opencode.json`) |
+| **Worker** | Tactical executor. Runs tools (recon, spider, mapping, testing, validation), writes structured results, and stays inside one hypothesis. | `opencode-go/muse-spark-1.3-contributor` (variant `default`) | Spawned as subagent via `/worker` command (`agent.general` in `opencode.json`) |
+| **Fallback** | Manual fallback for both Lead and Worker on 429/5xx, capacity, or degraded quality. | `opencode-go/deepseek-v4.1-flash` | Switch with `--model opencode-go/deepseek-v4.1-flash` or set in `config/omniroute.policy.json` `routes.cheap_fallback`; retry once with bounded backoff |
 
 **No separate terminals needed for normal use.** Lead runs as the primary agent and Workers are spawned on-demand. The default configuration permits two bounded Worker slots for independent tasks; if the client executes slash commands serially, use separate bounded sessions rather than pretending tasks are parallel.
 
-**Autonomous continuation:** After authorization and scope are established, the Lead must write, validate, reserve, dispatch, process, and follow up on authorized tasks without waiting for manual slash-command invocation. A reserved slot is not a running Worker; the Lead must dispatch it and require a result or typed failure artifact. Recoverable failures trigger diagnosis, one corrected retry, an alternate safe method, or independent-task continuation. The Lead pauses only for scope/authorization ambiguity, out-of-scope access, destructive or irreversible actions, missing approval, unrefreshable credentials, or unbounded impact.
+**Autonomous continuation:** After authorization and scope are established, the Lead must write, validate, reserve, dispatch, process, and follow up on authorized tasks without waiting for manual slash-command invocation. A reserved slot is not a running Worker; the Lead must dispatch it and require a result or typed failure artifact. Recoverable failures trigger diagnosis, one corrected retry, an alternate safe method, or independent-task continuation. The Lead pauses only for scope/authorization ambiguity, out-of-scope access, destructive or irreversible actions, missing approval, unrefreshable credentials, or unbounded impact. **Whenever a hard gate needs a human in the loop, the Lead starts `tools/operator_ping.sh "<need>" loop` so it keeps beeping until answered, states the need, and keeps hunting unblocked work — never silent standby.**
 
-## Agent Discipline — PRO vs FLASH (NEVER VIOLATE)
+## Agent Discipline — LEAD vs WORKER (NEVER VIOLATE)
 
-The two-agent architecture is NOT optional. It is the single most important factor in token efficiency. **70% of token waste comes from Lead (Pro) doing Worker (Flash) work.**
+The two-agent architecture is NOT optional. It is the single most important factor in token efficiency. **70% of token waste comes from Lead (Muse Spark 1.3 high / Build) doing Worker (Muse Spark 1.3 default / General) work.**
 
-| Lead (Pro/Build) does | Worker (Flash/General) does | ❌ NEVER do as Lead |
+| Lead (Muse Spark high / Build) does | Worker (Muse Spark default / General) does | ❌ NEVER do as Lead |
 |------------------------|----------------------------|---------------------|
 | Strategic planning | Endpoint probing | `bash` / `curl` commands |
 | Chain synthesis (M9) | Browser interaction | Playwright evaluate/navigate |
@@ -167,7 +168,7 @@ results/               → Worker-generated result files
 | `tools/oob_validator.py` | Phase 3 | OOB callback validation + payload correlation |
 | `tools/chain_automation.py` | Phase 2 | Automated M9 chain synthesis from endpoint profiles |
 | `tools/fp_database.py` | Phase 3/4 | False positive pattern database with confidence adjustment |
-| `tools/model_router.py` | All | Legacy Pro vs Flash task classification; OmniRoute performs provider selection |
+| `tools/model_router.py` | All | Lead (Muse Spark 1.3 high) vs Worker (Muse Spark 1.3 default) task classification with fallback to DeepSeek V4.1 Flash |
 | `tools/omniroute_doctor.py` | Setup | Read-only gateway, health, and model/candidate checks |
 | `tools/skill_lint.py` | CI | Enforces skill metadata, gates, checkpoints, and summary coverage |
 | `tools/knowledge_ingest.py` | KB | Imports redacted public metadata above a bounty threshold into NDJSON |

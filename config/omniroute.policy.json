@@ -11,25 +11,30 @@
   },
   "routes": {
     "lead": {
-      "model": "auto/reasoning:free",
+      "provider": "opencode-go",
+      "model": "opencode-go/muse-spark-1.3-contributor",
+      "variant": "high",
       "mode": "offline",
       "compression": "coding-safe",
       "budget_fallback": "strict",
-      "purpose": "planning and prioritization over sanitized context"
+      "purpose": "planning and prioritization over sanitized context (Lead/primary, high thinking)"
     },
     "worker": {
-      "model": "auto/coding:free",
+      "provider": "opencode-go",
+      "model": "opencode-go/muse-spark-1.3-contributor",
+      "variant": "default",
       "mode": "offline",
       "compression": "coding-safe",
       "budget_fallback": "strict",
-      "purpose": "tactical execution summaries; never raw credentials"
+      "purpose": "tactical execution summaries; never raw credentials (Worker/subagent, default thinking)"
     },
     "cheap_fallback": {
-      "model": "auto/coding:cheap",
+      "provider": "opencode-go",
+      "model": "opencode-go/deepseek-v4.1-flash",
       "mode": "cheap",
       "compression": "coding-safe",
       "budget_fallback": "strict",
-      "purpose": "opt-in sanitized work when free-only has no viable candidate"
+      "purpose": "fallback for both Lead and Worker on 429/5xx or capacity - switch --model to this and retry once with bounded backoff"
     },
     "trusted_sensitive": {
       "model": "trusted-combo-name",

@@ -1,13 +1,15 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "model": "opencode-go/muse-spark-1.3-contributor",
+  "small_model": "opencode-go/deepseek-v4.1-flash",
   "agent": {
     "build": {
       "mode": "primary",
-      "model": "omniroute/auto/reasoning:free"
+      "model": "opencode-go/muse-spark-1.3-contributor"
     },
     "general": {
       "mode": "subagent",
-      "model": "omniroute/auto/coding:free"
+      "model": "opencode-go/muse-spark-1.3-contributor"
     }
   },
   "provider": {

@@ -19,9 +19,9 @@ The doctor performs read-only checks against `/v1/models` and `/api/monitoring/h
 
 ## Model roles
 
-The active `opencode.json` maps the Lead to `omniroute/auto/reasoning:free` and the Worker to `omniroute/auto/coding:free`. The free-only provider entry uses `@ai-sdk/openai-compatible`, `OMNIROUTE_BASE_URL`, and `OMNIROUTE_API_KEY`. Its headers request offline-friendly scoring, coding-safe compression, a near-zero budget, and strict budget fallback, so it must not silently choose a paid candidate. The `auto/*` route is dynamic, so it uses currently active connections; inspect the live candidate pool before relying on it.
+The active `opencode.json` pins both Lead and Worker to `opencode-go/muse-spark-1.3-contributor` — Lead with variant `high`, Worker with variant `default` (select via `/models` + `variant_cycle`). The manual fallback for both is `opencode-go/deepseek-v4.1-flash`. Top-level `model` defaults to the Lead model and `small_model` defaults to the fallback. The same IDs plus variants are recorded in `config/omniroute.policy.json` under `routes.lead` (variant `high`), `routes.worker` (variant `default`), and `routes.cheap_fallback`.
 
-The `omniroute-cheap/auto/coding:cheap` model is intentionally isolated as an opt-in fallback, not as the default. Use it only for sanitized context after confirming that the free-only pool cannot serve the task and after accepting the cost policy. For sensitive evidence, use an operator-approved trusted combo rather than a free or web-session provider.
+The legacy free-only OmniRoute provider entries (`omniroute/auto/reasoning:free`, `omniroute/auto/coding:free`, `omniroute-cheap/auto/coding:cheap`) remain in `opencode.json` for backward compatibility but are no longer the defaults. The `auto/*` routes are dynamic; if you use them, inspect the live candidate pool before relying on them.
 
 ## Strict zero-cost decision
 
